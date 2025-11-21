@@ -7,7 +7,7 @@ import os
 import time
 
 test_img_num = 5
-save_plot = False
+save_plot = True
 
 def read_image(img_name):
     folder = os.path.dirname(os.path.abspath(__file__))
@@ -65,7 +65,7 @@ def detect_stripes(V_norm):
 
     # 3️ Peaks finden (Streifenmitten)
     # "distance" steuert den minimalen Abstand zwischen Peaks
-    peaks, props = find_peaks(line_vessel, distance=5, height=0.3)
+    peaks, props = find_peaks(line_vessel, distance=5, height=0.5)
 
     print(f"Gefundene Peaks: {len(peaks)}")
     I_rgb = cv2.cvtColor(I_color, cv2.COLOR_BGR2RGB)

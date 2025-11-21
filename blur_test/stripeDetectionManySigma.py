@@ -6,7 +6,7 @@ from scipy.signal import find_peaks
 import os
 import time
 
-test_img_num = 5
+test_img_num = 6
 sigmas = [4.5, 5.0]
 save_plot = True
 one_line = True
