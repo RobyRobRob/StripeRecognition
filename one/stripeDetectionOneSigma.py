@@ -4,13 +4,16 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.signal import find_peaks
 import os
+import time
+
+test_img_num = 5
+save_plot = False
 
 def read_image(img_name):
     folder = os.path.dirname(os.path.abspath(__file__))
-    img_path = os.path.join(folder, "images", img_name)
-    # --- Bild in FARBE und GRAU einlesen ---
-    I_color = cv2.imread(img_path)  # Farbbild
-    I  = cv2.cvtColor(I_color, cv2.COLOR_BGR2GRAY)  # für Verarbeitung
+    img_path = os.path.join(folder, "images", "testStripes" + str(img_name) + ".jpg")
+    I_color = cv2.imread(img_path)
+    I  = cv2.cvtColor(I_color, cv2.COLOR_BGR2GRAY)
     return I, I_color
 
 def img_blurring(I):
@@ -19,7 +22,6 @@ def img_blurring(I):
     return I_sigma
 
 def img_lambda(I_sigma):
-    # 2. Ableitungen
     Ixx = cv2.Sobel(I_sigma, cv2.CV_64F, 2, 0, ksize=3)  # 2x in X-Richtung
     Iyy = cv2.Sobel(I_sigma, cv2.CV_64F, 0, 2, ksize=3)  # 2x in Y-Richtung
     Ixy = cv2.Sobel(I_sigma, cv2.CV_64F, 1, 1, ksize=3)  # gemischt
@@ -27,13 +29,13 @@ def img_lambda(I_sigma):
     # Eigenwerte der 2x2-Hessian-Matrix:
     tmp1 = (Ixx + Iyy) / 2.0
     tmp2 = np.sqrt(((Ixx - Iyy) / 2.0)**2 + Ixy**2)
-
     lambda1 = tmp1 + tmp2
     lambda2 = tmp1 - tmp2
     
     return lambda1, lambda2
 
 def img_vesselness(lambda1, lambda2, alpha, beta):
+    # Streifen lokalisieren
     # Um Division durch 0 zu vermeiden:
     eps = 1e-8
     # Vesselness berechnen
@@ -41,7 +43,7 @@ def img_vesselness(lambda1, lambda2, alpha, beta):
         np.exp(-alpha * np.abs(lambda2 / (lambda1 + eps))) * \
         (1 - np.exp(-beta * (lambda1**2 + lambda2**2)))
 
-    # Optional: auf [0,1] normalisieren, um besser zu visualisieren
+    # normalise
     V_norm = (V - np.min(V)) / (np.max(V) - np.min(V))
     return V_norm
 
@@ -55,10 +57,6 @@ def plot_stripes(V_norm):
     plt.savefig(img_path, dpi=300, bbox_inches='tight')
 
 def detect_stripes(V_norm):
-    # ===============================
-    # Scanlinie & Peak-Erkennung
-    # ===============================
-
     # 1 Scanlinie wählen (z. B. mittig)
     y_scan = V_norm.shape[0] // 2
 
@@ -70,7 +68,8 @@ def detect_stripes(V_norm):
     peaks, props = find_peaks(line_vessel, distance=5, height=0.3)
 
     print(f"Gefundene Peaks: {len(peaks)}")
-    return peaks, props, y_scan
+    I_rgb = cv2.cvtColor(I_color, cv2.COLOR_BGR2RGB)
+    return peaks, props, y_scan, I_rgb
 
 def mark_stripes():
     # ===============================
@@ -98,13 +97,7 @@ def mark_stripes():
     img_path = os.path.join(folder, "images\output_peaks.png")
     plt.savefig(img_path, dpi=300, bbox_inches='tight')
 
-def color_detection():
-    # Farberkennung
-
-    # Beispielstreifen 
-    x = 5
-    y = y_scan
-
+def mark_window(x, y_scan):
     # peaks[x]
     I_rgb = cv2.cvtColor(I_color, cv2.COLOR_BGR2RGB)
 
@@ -116,17 +109,24 @@ def color_detection():
     folder = os.path.dirname(os.path.abspath(__file__))
     img_path = os.path.join(folder, "images\window.png")
     plt.savefig(img_path, dpi=300, bbox_inches='tight')
+    plt.close()
 
+def color_detection(I_rgb, y_scan, x, peaks):
     color_min = [300, 300, 300]
     color_max = [0, 0, 0]
+    buffer = 0
+    if x > (len(peaks) - 3):
+        buffer = 3 - (len(peaks) - x)
+    if x < 2:
+        buffer = -2 + x
 
-    for i in range(-2, 3):
+    for i in range(-2 - buffer, 3 - buffer):
         for j in range(3):
-            if(I_rgb[y, peaks[x + i]][j] < color_min[j]):
-                color_min[j] = I_rgb[y, peaks[x + i]][j]
+            if(I_rgb[y_scan, peaks[x + i]][j] < color_min[j]):
+                color_min[j] = I_rgb[y_scan, peaks[x + i]][j]
             
-            if(I_rgb[y, peaks[x + i]][j] > color_max[j]):
-                color_max[j] = I_rgb[y, peaks[x + i]][j]
+            if(I_rgb[y_scan, peaks[x + i]][j] > color_max[j]):
+                color_max[j] = I_rgb[y_scan, peaks[x + i]][j]
                 
     h = [0, 0, 0]
     ambient = [0, 0, 0]
@@ -136,8 +136,8 @@ def color_detection():
 
     color = [0, 0, 0]
     for j in range(3):
-        color[j] = (I_rgb[y, peaks[x]][j] - ambient[j]) / h[j]
-    return ambient, I_rgb, y, x, color, h
+        color[j] = (I_rgb[y_scan, peaks[x]][j] - ambient[j]) / h[j]
+    return ambient, I_rgb, y_scan, x, color, h
 
 def print_values(ambient, I_rgb, y, x, color, h):
     print("==============")
@@ -148,30 +148,62 @@ def print_values(ambient, I_rgb, y, x, color, h):
     print(color)
     print("==============")
 
-def color_mapping(top_limit, low_limit):
+def color_mapping(color, top_limit, low_limit):
     if((color[0] > top_limit) & (color[1] < low_limit) & (color[2] < low_limit)):
-        print("R")
+        return "R"
     elif((color[0] < low_limit) & (color[1] > top_limit) & (color[2] < low_limit)):
-        print("G")
+        return "G"
     elif((color[0] < low_limit) & (color[1] < low_limit) & (color[2] > top_limit)):
-        print("B")
+        return "B"
     elif((color[0] > top_limit) & (color[1] > top_limit) & (color[2] < low_limit)):
-        print("M")
+        return "Y"
     elif((color[0] > top_limit) & (color[1] < low_limit) & (color[2] > top_limit)):
-        print("Y")
+        return "M"
     elif((color[0] < low_limit) & (color[1] > top_limit) & (color[2] > top_limit)):
-        print("C")
+        return "C"
     else:
-        print("?")
+        return "?"
 
+def colorline_detection(I_rgb):
+    colorcombination = [""] * len(peaks)
+    for i in range(len(peaks)):
+        # mark_window(x, y_scan)
+        ambient, I_rgb, y, x, color, h = color_detection(I_rgb, y_scan, i, peaks)
+        # print_values(ambient, I_rgb, y, x, color, h)
+        colorcombination[i] = color_mapping(color, 0.5, 0.2)
+    return colorcombination
 
-I, I_color = read_image("testStripes1.jpg")
+def test_accuracy(colorcombination, test_img):
+    folder = os.path.dirname(os.path.abspath(__file__))
+    Solution_path = os.path.join(folder, "Solutions.txt")
+    with open(Solution_path, "r", encoding="utf-8") as f:
+        lines = f.readlines()
+    #print("Solution: ")
+    Solution = lines[2*test_img - 1].strip()
+    #print(Solution)
+    #print("".join(colorcombination))
+    errors = 0
+    for i in range(len(Solution)):
+        if colorcombination[i] != Solution[i]:
+            print(str(i) + ": " + colorcombination[i] + ", " + Solution[i]) 
+            errors += 1
+    return 100 - (errors/len(colorcombination) * 100)
+
+start = time.time()
+I, I_color = read_image(test_img_num)
 I_sigma = img_blurring(I)
 lambda1, lambda2 = img_lambda(I_sigma)
 V_norm = img_vesselness(lambda1, lambda2, 0.5, 0.5)
-plot_stripes(V_norm)
-peaks, props, y_scan = detect_stripes(V_norm)
-mark_stripes()
-ambient, I_rgb, y, x, color, h = color_detection()
-print_values(ambient, I_rgb, y, x, color, h)
-color_mapping(0.5, 0.2)
+if save_plot:
+    plot_stripes(V_norm)
+start2 = time.time()
+peaks, props, y_scan, I_rgb = detect_stripes(V_norm)
+if save_plot:
+    mark_stripes()
+colorcombination = colorline_detection(I_rgb)
+
+stop = time.time()
+
+print("Accuracy = " + str(test_accuracy(colorcombination, test_img_num)) + " %")
+print("Total Time     : " + str(stop - start))
+print("Time per stripe: " + str((stop - start2)/1))
