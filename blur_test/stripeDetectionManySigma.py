@@ -3,72 +3,128 @@ import cv2
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.signal import find_peaks
+from scipy.ndimage import gaussian_filter
 import os
 import time
 
 test_img_num = 6
-sigmas = [4.5, 5.0]
+sigmas = [1, 2, 3]
 save_plot = True
+save_img = True
 one_line = True
 
-def read_image(img_name):
+def plot_array(arr, name, multiple):
+    folder = os.path.dirname(os.path.abspath(__file__))
+    img_path = os.path.join(folder, "plots/" + name)
+    plt.figure(figsize=(10,5))
+    plt.title(name)
+    plt.xlabel("x-Pixel")
+    plt.ylabel("Helligkeit (0–255)")
+    plt.grid(True)
+    if multiple:
+        for i in range(len(arr)):
+            y_scan = arr[i].shape[0] // 2
+            plt.plot(arr[i][y_scan, :], label="Kurve " + str(i+1))
+        plt.legend(loc="lower left")
+    else:
+        y_scan = arr.shape[0] // 2
+        Img_line = arr[y_scan, :]
+        plt.plot(Img_line)
+    plt.savefig(img_path, dpi=300, bbox_inches='tight')
+    plt.close()
+
+def read_image(img_name):       # Img einlesen
     folder = os.path.dirname(os.path.abspath(__file__))
     img_path = os.path.join(folder, "images", "testStripes" + str(img_name) + ".jpg")
     I_color = cv2.imread(img_path)
-    I  = cv2.cvtColor(I_color, cv2.COLOR_BGR2GRAY)
-    return I, I_color
+    Img  = cv2.cvtColor(I_color, cv2.COLOR_BGR2GRAY)
+    if save_plot:
+        plot_array(Img, "img" + str(test_img_num) + "_Original.png", False)
+    return Img, I_color
 
-def img_blurring(I, sigmas):
+def img_blurring(Img, sigmas):  # Img blurren
     I_sigmas = []
     # Glätten mit Sigma
     # Block Blur
+    count = 1
     for i in sigmas:
-        I_sigma = cv2.GaussianBlur(I, (5, 5), sigmaX=i, sigmaY=i)
+        ksize = int(6 * i + 1)
+        I_sigma = cv2.GaussianBlur(Img, (ksize, ksize), sigmaX=i, sigmaY=i)             # (5, 5) Kernel, gibt Feldgröße an, sigma, gibt gewichtung an
         # I_sigma = cv2.blur(I, (3, 3))
         I_sigmas.append(I_sigma)
+        if save_img:
+            plt.figure(figsize=(12, 6))
+
+            plt.imshow(I_sigma, cmap='gray')  # <<< WICHTIG
+            plt.title(f"img{test_img_num}_blurred   Sigma: {sigmas[count-1]}")
+            plt.axis('off')
+
+            folder = os.path.dirname(os.path.abspath(__file__))
+            img_path = os.path.join(folder, f"images/img{test_img_num}_blurred_{sigmas[count-1]}.png")
+            count+=1
+
+            plt.savefig(img_path, dpi=300, bbox_inches='tight')
+            plt.close()
+    if save_plot:
+        plot_array(I_sigmas, "img" + str(test_img_num) + "_Sigmas", True)
     return I_sigmas
 
-def img_lambda(I_sigmas):
+def img_lambda(I_sigmas):       # Lambdas berechnen
     lambdas = []
+    count = 0
     for I_sigma in I_sigmas:
-        Ixx = cv2.Sobel(I_sigma, cv2.CV_64F, 2, 0, ksize=3)  # 2x in X-Richtung
-        Iyy = cv2.Sobel(I_sigma, cv2.CV_64F, 0, 2, ksize=3)  # 2x in Y-Richtung
-        Ixy = cv2.Sobel(I_sigma, cv2.CV_64F, 1, 1, ksize=3)  # gemischt
+        Ixx = gaussian_filter(I_sigma, sigma=sigmas[count], order=(2,0))
+        Iyy = gaussian_filter(I_sigma, sigma=sigmas[count], order=(0,2))
+        Ixy = gaussian_filter(I_sigma, sigma=sigmas[count], order=(1,1))
+        count += 1
 
         # Eigenwerte der 2x2-Hessian-Matrix:
         tmp1 = (Ixx + Iyy) / 2.0
-        tmp2 = np.sqrt(((Ixx - Iyy) / 2.0)**2 + Ixy**2)
+        tmp2 = np.sqrt(((Ixx - Iyy)/2)**2 + (Ixy**2))
         lambda1 = tmp1 + tmp2
         lambda2 = tmp1 - tmp2
         lambdas.append((lambda1, lambda2))
     
     return lambdas
 
-def img_vesselness(lambdas, alpha, beta):
+def img_vesselness(lambdas, alpha, beta): # erstellt vesselness map
     eps = 1e-8
     V_all = []
 
     for lambda1, lambda2 in lambdas:
-        # Formel aus dem Paper:
-        # V = sign(-lambda1) * exp(-alpha*(lambda2/lambda1)^2) * (1 - exp(-beta*(lambda1^2 + lambda2^2)))
-        
-        R = (lambda2 / (lambda1 + eps)) ** 2
-        S = lambda1**2 + lambda2**2
 
-        V = np.sign(-lambda1) * np.exp(-alpha * R) * (1 - np.exp(-beta * S))
+        # 1) Sortieren: |λ1| >= |λ2|
+        l1 = lambda1
+        l2 = lambda2
+        switch = np.abs(lambda2) > np.abs(lambda1)
+        l1, l2 = np.where(switch, lambda2, lambda1), np.where(switch, lambda1, lambda2)
+
+        # 2) Vesselness-Formel
+        #R = abs((l2 / (l1 + eps)))
+        R = (l2 / (l1 + eps))**2
+        S = l1**2 + l2**2
+
+        V = np.sign(-l1) * np.exp(-alpha * R) * (1 - np.exp(-beta * S))
 
         V_all.append(V)
 
+    plot_array(V_all,"img" + str(test_img_num) + "_V_all.png", True)
+
     # Multi-scale Vesselness -> Pixelweises Maximum über alle sigma
     V_all = np.stack(V_all, axis=0)
+    
     V_max = np.max(V_all, axis=0)
+    if save_plot:
+        plot_array(V_max, "img" + str(test_img_num) + "_V_max.png", False)
 
     # Normierung
     V_norm = (V_max - np.min(V_max)) / (np.max(V_max) - np.min(V_max) + eps)
+    if save_plot:
+        plot_array(V_norm, "img" + str(test_img_num) + "_V_norm.png", False)
 
     return V_norm
 
-def plot_stripes(V_norm):
+def plot_stripes(V_norm):   # stellt vessellnesmap als schwarz weiß bild dar
     plt.figure(figsize=(10,5))
     plt.imshow(V_norm, cmap='gray')
     plt.title("Vesselness Map (Streifen erkannt)")
@@ -77,7 +133,7 @@ def plot_stripes(V_norm):
     img_path = os.path.join(folder, "images\output_stripes.png")
     plt.savefig(img_path, dpi=300, bbox_inches='tight')
 
-def detect_stripes(V_norm):
+def detect_stripes(V_norm): # scannt Veselness map nach streifen ab und gibt koordinaten zurück
     # 1 Scanlinie wählen (z. B. mittig)
     y_scan = V_norm.shape[0] // 2
 
@@ -92,7 +148,7 @@ def detect_stripes(V_norm):
     I_rgb = cv2.cvtColor(I_color, cv2.COLOR_BGR2RGB)
     return peaks, props, y_scan, I_rgb
 
-def mark_stripes():
+def mark_stripes():     # markiert auf dem Bild die erkannten peaks
     # ===============================
     # Visualisierung
     # ===============================
@@ -118,7 +174,7 @@ def mark_stripes():
     img_path = os.path.join(folder, "images\output_peaks.png")
     plt.savefig(img_path, dpi=300, bbox_inches='tight')
 
-def mark_window(x, y_scan):
+def mark_window(x, y_scan): # markiert die sreifen in einem Bild
     # peaks[x]
     I_rgb = cv2.cvtColor(I_color, cv2.COLOR_BGR2RGB)
 
@@ -132,7 +188,7 @@ def mark_window(x, y_scan):
     plt.savefig(img_path, dpi=300, bbox_inches='tight')
     plt.close()
 
-def color_detection(I_rgb, y_scan, x, peaks):
+def color_detection(I_rgb, y_scan, x, peaks):  # erkennt die Farbwerte an der position anhand des windows
     color_min = [300, 300, 300]
     color_max = [0, 0, 0]
     buffer = 0
@@ -160,7 +216,7 @@ def color_detection(I_rgb, y_scan, x, peaks):
         color[j] = (I_rgb[y_scan, peaks[x]][j] - ambient[j]) / h[j]
     return ambient, I_rgb, y_scan, x, color, h
 
-def print_values(ambient, I_rgb, y, x, color, h):
+def print_values(ambient, I_rgb, y, x, color, h):   # printed erkannte Werte im Window 
     print("==============")
     print("h: " + str(h))
     print("ambient: " + str(ambient))
@@ -169,7 +225,7 @@ def print_values(ambient, I_rgb, y, x, color, h):
     print(color)
     print("==============")
 
-def color_mapping(color, top_limit, low_limit):
+def color_mapping(color, top_limit, low_limit):     # weißt den farbwerten einer der 6 farben zu
     if((color[0] > top_limit) & (color[1] < low_limit) & (color[2] < low_limit)):
         return "R"
     elif((color[0] < low_limit) & (color[1] > top_limit) & (color[2] < low_limit)):
@@ -185,7 +241,7 @@ def color_mapping(color, top_limit, low_limit):
     else:
         return "?"
 
-def colorline_detection(I_rgb, y):
+def colorline_detection(I_rgb, y):      # erkennt alle farben in einer reihe
     colorcombination = [""] * len(peaks)
     for i in range(len(peaks)):
         # mark_window(x, y_scan)
@@ -194,7 +250,7 @@ def colorline_detection(I_rgb, y):
         colorcombination[i] = color_mapping(color, 0.5, 0.2)
     return colorcombination
 
-def test_accuracy(colorcombination, test_img):
+def test_accuracy(colorcombination, test_img):  # testet wie gut die farben erkannt wurden
     folder = os.path.dirname(os.path.abspath(__file__))
     Solution_path = os.path.join(folder, "Solutions.txt")
     with open(Solution_path, "r", encoding="utf-8") as f:
@@ -210,30 +266,23 @@ def test_accuracy(colorcombination, test_img):
             errors += 1
     return 100 - (errors/len(colorcombination) * 100)
 
-start = time.time()
-I, I_color = read_image(test_img_num)
-I_sigmas = img_blurring(I, sigmas)
+Img, I_color = read_image(test_img_num)
+I_sigmas = img_blurring(Img, sigmas)
+
 lambdas = img_lambda(I_sigmas)
-V_norm = img_vesselness(lambdas, 0.5, 0.5)
-if save_plot:
+V_norm = img_vesselness(lambdas, 0.5, 0.5 )
+
+
+if save_img:
     plot_stripes(V_norm)
-start2 = time.time()
 peaks, props, y_scan, I_rgb = detect_stripes(V_norm)
-if save_plot:
+
+if save_img:
     mark_stripes()
+
 if one_line:
     colorcombination = colorline_detection(I_rgb, y_scan)
 else:
     colorcombination = [[]]*V_norm.shape[0]
     for y in range(V_norm.shape[0]):
         colorcombination[y] = colorline_detection(I_rgb, y)
-
-stop = time.time()
-if one_line:
-    time_per_stripe = stop - start2
-    print("Accuracy = " + str(test_accuracy(colorcombination, test_img_num)) + " %")
-else:
-    time_per_stripe = (stop - start2)/V_norm.shape[0]
-
-print("Total Time     : " + str(stop - start))
-print("Time per stripe: " + str(time_per_stripe))
