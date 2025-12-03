@@ -8,7 +8,7 @@ import os
 import time
 
 test_img_num = 6
-sigmas = [1, 2, 3]
+sigmas = [1, 2, 3, 4]
 save_plot = True
 save_img = True
 one_line = True
@@ -34,6 +34,46 @@ def plot_array(arr, name, multiple):
         Img_line = arr[y_scan, :]
         plt.plot(Img_line)
         plt.savefig(img_path, dpi=300, bbox_inches='tight')
+        plt.close()
+        return Img_line
+
+def plot_array_over_img(arr, name, multiple, img):
+    folder = os.path.dirname(os.path.abspath(__file__))
+    plot_path = os.path.join(folder, "plots/" + name)
+    
+    plt.title(name)
+    plt.xlabel("x-Pixel")
+    plt.ylabel("Helligkeit (0–255)")
+    plt.grid(True)
+    if multiple:
+        y_scan = arr[0].shape[0] // 2
+        I_RGB_line = img[y_scan]
+        plt.figure(figsize=(10,10))
+        I_RGB_stripe = np.stack([I_RGB_line] * 50, axis=0)
+        
+        plt.imshow(I_RGB_stripe, cmap=None)
+        for i in range(len(arr)):
+            plt.plot(arr[i][y_scan, :], label="Kurve " + str(i+1))
+        plt.legend(loc="center left")
+        plt.savefig(plot_path, dpi=300, bbox_inches='tight')
+        plt.close()
+        return arr
+    else:
+        if arr.ndim > 1:
+            y_scan = arr.shape[0] // 2
+        else:
+            y_scan = img.shape[0]//2 
+        I_RGB_line = img[y_scan]
+        plt.figure(figsize=(10,10))
+        I_RGB_stripe = np.stack([I_RGB_line] * 50, axis=0)
+    
+        plt.imshow(I_RGB_stripe, cmap=None)
+        if arr.ndim > 1:
+            Img_line = arr[y_scan, :]
+        else:
+            Img_line = arr
+        plt.plot(Img_line)
+        plt.savefig(plot_path, dpi=300, bbox_inches='tight')
         plt.close()
         return Img_line
 
@@ -77,19 +117,32 @@ def img_blurring(I_GRAY, sigmas):  # Img blurren
 def img_lambda(I_sigmas):       # Lambdas berechnen
     lambdas = []
     count = 0
+    Ixxs = []
+    Iyys = []
+    Ixys = []
     for I_sigma in I_sigmas:
-        Ixx = gaussian_filter(I_sigma, sigma=sigmas[count], order=(2,0))
-        Iyy = gaussian_filter(I_sigma, sigma=sigmas[count], order=(0,2))
+        Iyy = gaussian_filter(I_sigma, sigma=sigmas[count], order=(2,0))
+        Ixx = gaussian_filter(I_sigma, sigma=sigmas[count], order=(0,2))
         Ixy = gaussian_filter(I_sigma, sigma=sigmas[count], order=(1,1))
         count += 1
+        
+        Ixxs.append(Ixx)
+        Iyys.append(Iyy)
+        Ixys.append(Ixy)
 
-        # Eigenwerte der 2x2-Hessian-Matrix:
-        tmp1 = (Ixx + Iyy) / 2.0
-        tmp2 = np.sqrt(((Ixx - Iyy)/2)**2 + (Ixy**2))
-        lambda1 = tmp1 + tmp2
-        lambda2 = tmp1 - tmp2
-        lambdas.append((lambda1, lambda2))
+    plot_array_over_img(Ixxs, "2_Ableitungen", True, I_RGB)
+
+    Ixx = np.maximum.reduce(Ixxs)
+    Iyy = np.maximum.reduce(Iyys)
+    Ixy = np.maximum.reduce(Ixys)
+    # Eigenwerte der 2x2-Hessian-Matrix:
+    tmp1 = (Ixx + Iyy) / 2.0
+    tmp2 = np.sqrt(((Ixx - Iyy)/2)**2 + (Ixy**2))
+    lambda1 = tmp1 + tmp2
+    lambda2 = tmp1 - tmp2
+    lambdas.append((lambda1, lambda2))
     
+    plot_array_over_img(Ixx, "2_Ableitung", False, I_RGB)
     return lambdas
 
 def img_vesselness(lambdas, alpha, beta): # erstellt vesselness map
@@ -147,7 +200,7 @@ def detect_stripes(V_norm): # scannt Veselness map nach streifen ab und gibt koo
 
     # 3️ Peaks finden (Streifenmitten)
     # "distance" steuert den minimalen Abstand zwischen Peaks und height die höhe die ein pixel haben muss um ein peak zu sein
-    peaks, props = find_peaks(line_vessel, distance=5, height=0.6)
+    peaks, props = find_peaks(line_vessel, distance=10, height=0.2)
 
     print(f"Gefundene Peaks: {len(peaks)}")
     I_rgb = cv2.cvtColor(I_BGR, cv2.COLOR_BGR2RGB)
@@ -284,7 +337,7 @@ def test_accuracy(colorcombination, test_img):  # testet wie gut die farben erka
     return 100 - (errors/len(colorcombination) * 100)
 
 I_GRAY, I_BGR = read_image(test_img_num)
-I_RGB = cv2.colorChange(I_BGR, cv2.COLOR_BGR2RGB)
+I_RGB = cv2.cvtColor(I_BGR, cv2.COLOR_BGR2RGB)
 I_sigmas = img_blurring(I_GRAY, sigmas)
 
 lambdas = img_lambda(I_sigmas)
@@ -299,10 +352,11 @@ peaks, props, y_scan, I_rgb = detect_stripes(V_norm)
 if save_img:
     mark_stripes()
 
-
+'''
 if one_line:
     colorcombination = colorline_detection(I_rgb, y_scan)
 else:
     colorcombination = [[]]*V_norm.shape[0]
     for y in range(V_norm.shape[0]):
         colorcombination[y] = colorline_detection(I_rgb, y)
+'''
