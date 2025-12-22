@@ -6,7 +6,7 @@ from scipy.signal import find_peaks
 import os
 import time
 
-test_img_num = 5
+test_img_num = 6
 sigmas = [4.5, 5.0]
 save_plot = True
 one_line = True
@@ -40,7 +40,12 @@ def img_lambda(I_sigmas):
         tmp2 = np.sqrt(((Ixx - Iyy) / 2.0)**2 + Ixy**2)
         lambda1 = tmp1 + tmp2
         lambda2 = tmp1 - tmp2
-        lambdas.append((lambda1, lambda2))
+        
+        swap = np.abs(lambda2) > np.abs(lambda1)    # damit fpr jedes pixel lambda1 < lambda2 gilt
+
+        l1 = np.where(swap, lambda2, lambda1)
+        l2 = np.where(swap, lambda1, lambda2)
+        lambdas.append((l1, l2))
     
     return lambdas
 
@@ -54,8 +59,12 @@ def img_vesselness(lambdas, alpha, beta):
         
         R = (lambda2 / (lambda1 + eps)) ** 2
         S = lambda1**2 + lambda2**2
+        
+        V = np.zeros_like(lambda1)
 
-        V = np.sign(-lambda1) * np.exp(-alpha * R) * (1 - np.exp(-beta * S))
+        mask = lambda2 > 0   # Bedingung aus Frangi (helle Gefäße, 2D)
+
+        V[mask] = np.exp(-alpha * R[mask]) * (1 - np.exp(-beta * S[mask]))
 
         V_all.append(V)
 
@@ -231,7 +240,7 @@ else:
 stop = time.time()
 if one_line:
     time_per_stripe = stop - start2
-    print("Accuracy = " + str(test_accuracy(colorcombination, test_img_num)) + " %")
+    #print("Accuracy = " + str(test_accuracy(colorcombination, test_img_num)) + " %")
 else:
     time_per_stripe = (stop - start2)/V_norm.shape[0]
 

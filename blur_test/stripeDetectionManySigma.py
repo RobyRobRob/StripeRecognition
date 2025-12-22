@@ -8,7 +8,7 @@ import os
 import time
 
 test_img_num = 6
-sigmas = [1, 2, 3, 4]
+sigmas = [1, 2, 3]
 save_plot = True
 save_img = True
 one_line = True
@@ -124,25 +124,24 @@ def img_lambda(I_sigmas):       # Lambdas berechnen
         Iyy = gaussian_filter(I_sigma, sigma=sigmas[count], order=(2,0))
         Ixx = gaussian_filter(I_sigma, sigma=sigmas[count], order=(0,2))
         Ixy = gaussian_filter(I_sigma, sigma=sigmas[count], order=(1,1))
+        
+        # da Große Sigma werden systematisch benachteiligt werden
+        Ixx *= sigmas[count]**2
+        Iyy *= sigmas[count]**2
+        Ixy *= sigmas[count]**2
         count += 1
         
+        tmp1 = (Ixx + Iyy) / 2.0
+        tmp2 = np.sqrt(((Ixx - Iyy)/2)**2 + (Ixy**2))
+        lambda1 = tmp1 + tmp2
+        lambda2 = tmp1 - tmp2
+        lambdas.append((lambda1, lambda2))
+        
+        # Um alle Ableitungen plotten zu können
         Ixxs.append(Ixx)
         Iyys.append(Iyy)
         Ixys.append(Ixy)
-
     plot_array_over_img(Ixxs, "2_Ableitungen", True, I_RGB)
-
-    Ixx = np.maximum.reduce(Ixxs)
-    Iyy = np.maximum.reduce(Iyys)
-    Ixy = np.maximum.reduce(Ixys)
-    # Eigenwerte der 2x2-Hessian-Matrix:
-    tmp1 = (Ixx + Iyy) / 2.0
-    tmp2 = np.sqrt(((Ixx - Iyy)/2)**2 + (Ixy**2))
-    lambda1 = tmp1 + tmp2
-    lambda2 = tmp1 - tmp2
-    lambdas.append((lambda1, lambda2))
-    
-    plot_array_over_img(Ixx, "2_Ableitung", False, I_RGB)
     return lambdas
 
 def img_vesselness(lambdas, alpha, beta): # erstellt vesselness map
@@ -150,30 +149,30 @@ def img_vesselness(lambdas, alpha, beta): # erstellt vesselness map
     V_all = []
 
     for lambda1, lambda2 in lambdas:
-
         # 1) Sortieren: |λ1| >= |λ2|
         l1 = lambda1
         l2 = lambda2
         switch = np.abs(lambda2) > np.abs(lambda1)
         l1, l2 = np.where(switch, lambda2, lambda1), np.where(switch, lambda1, lambda2)
-
+        
         # 2) Vesselness-Formel
-        #R = abs((l2 / (l1 + eps)))
-        R = (l2 / (l1 + eps))**2
+        mask = l1 > 0
+        R = abs(l2 / (l1 + eps))
         S = l1**2 + l2**2
-
-        V = np.sign(-l1) * np.exp(-alpha * R) * (1 - np.exp(-beta * S))
-
+        V = np.zeros_like(l1)
+        V[mask] = np.exp(-alpha * R[mask]) * (1 - np.exp(-beta * S[mask]))
+        
         V_all.append(V)
-
     plot_array(V_all,"img" + str(test_img_num) + "_V_all.png", True)
-
+    plot_array_over_img(V_all, "img" + str(test_img_num) + "_V_all_img", True, I_RGB)
+    
     # Multi-scale Vesselness -> Pixelweises Maximum über alle sigma
     V_all = np.stack(V_all, axis=0)
-    
     V_max = np.max(V_all, axis=0)
+    
     if save_plot:
         plot_array(V_max, "img" + str(test_img_num) + "_V_max.png", False)
+        plot_array_over_img(V_max, "img" + str(test_img_num) + "_V_max_img", False, I_RGB)
 
     # Normierung
     V_norm = (V_max - np.min(V_max)) / (np.max(V_max) - np.min(V_max) + eps)
@@ -184,7 +183,7 @@ def img_vesselness(lambdas, alpha, beta): # erstellt vesselness map
 
 def plot_stripes(V_norm):   # stellt vessellnesmap als schwarz weiß bild dar
     plt.figure(figsize=(10,5))
-    plt.imshow(V_norm, cmap='gray')
+    #plt.imshow(V_norm, cmap='gray')
     plt.title("Vesselness Map (Streifen erkannt)")
     plt.axis('off')
     folder = os.path.dirname(os.path.abspath(__file__))
