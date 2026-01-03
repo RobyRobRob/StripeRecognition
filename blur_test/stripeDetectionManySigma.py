@@ -10,7 +10,7 @@ import time
 test_img_num = 6
 sigmas = [1, 2, 3]
 save_plot = True
-save_img = True
+save_img = False
 one_line = True
 
 def plot_array(arr, name, multiple):
@@ -48,8 +48,11 @@ def plot_array_over_img(arr, name, multiple, img):
     if multiple:
         y_scan = arr[0].shape[0] // 2
         I_RGB_line = img[y_scan]
+        max_val = max(arr[0][y_scan, :])
+        if max_val < 1:
+            max_val = 1
         plt.figure(figsize=(10,10))
-        I_RGB_stripe = np.stack([I_RGB_line] * 50, axis=0)
+        I_RGB_stripe = np.stack([I_RGB_line] * int(max_val), axis=0)
         
         plt.imshow(I_RGB_stripe, cmap=None)
         for i in range(len(arr)):
@@ -64,8 +67,11 @@ def plot_array_over_img(arr, name, multiple, img):
         else:
             y_scan = img.shape[0]//2 
         I_RGB_line = img[y_scan]
+        max_val = max(arr[y_scan, :])
+        if max_val < 1:
+            max_val = 1
         plt.figure(figsize=(10,10))
-        I_RGB_stripe = np.stack([I_RGB_line] * 50, axis=0)
+        I_RGB_stripe = np.stack([I_RGB_line] * int(max_val), axis=0)
     
         plt.imshow(I_RGB_stripe, cmap=None)
         if arr.ndim > 1:
@@ -82,14 +88,11 @@ def read_image(img_name):       # Img einlesen
     img_path = os.path.join(folder, "images", "testStripes" + str(img_name) + ".jpg")
     I_BGR = cv2.imread(img_path)
     I_GRAY  = cv2.cvtColor(I_BGR, cv2.COLOR_BGR2GRAY)
-    if save_plot:
-        plot_array(I_GRAY, "img" + str(test_img_num) + "_GrayValues.png", False)
     return I_GRAY, I_BGR
 
 def img_blurring(I_GRAY, sigmas):  # Img blurren
     I_sigmas = []
     # Glätten mit Sigma
-    # Block Blur
     count = 1
     for i in sigmas:
         ksize = int(6 * i + 1)
@@ -98,7 +101,6 @@ def img_blurring(I_GRAY, sigmas):  # Img blurren
         I_sigmas.append(I_sigma)
         if save_img:
             plt.figure(figsize=(12, 6))
-
             plt.imshow(I_sigma, cmap='gray')  # <<< WICHTIG
             plt.title(f"img{test_img_num}_blurred   Sigma: {sigmas[count-1]}")
             plt.axis('off')
@@ -111,7 +113,7 @@ def img_blurring(I_GRAY, sigmas):  # Img blurren
             plt.close()
             
     if save_plot:
-        plot_array(I_sigmas, "img" + str(test_img_num) + "_Sigmas", True)
+        plot_array_over_img(I_sigmas, "img" + str(test_img_num) + "_Sigmas", True, I_RGB)
     return I_sigmas
 
 def img_lambda(I_sigmas):       # Lambdas berechnen
@@ -163,7 +165,7 @@ def img_vesselness(lambdas, alpha, beta): # erstellt vesselness map
         V[mask] = np.exp(-alpha * R[mask]) * (1 - np.exp(-beta * S[mask]))
         
         V_all.append(V)
-    plot_array(V_all,"img" + str(test_img_num) + "_V_all.png", True)
+    #plot_array(V_all,"img" + str(test_img_num) + "_V_all.png", True)
     plot_array_over_img(V_all, "img" + str(test_img_num) + "_V_all_img", True, I_RGB)
     
     # Multi-scale Vesselness -> Pixelweises Maximum über alle sigma
@@ -171,19 +173,18 @@ def img_vesselness(lambdas, alpha, beta): # erstellt vesselness map
     V_max = np.max(V_all, axis=0)
     
     if save_plot:
-        plot_array(V_max, "img" + str(test_img_num) + "_V_max.png", False)
+        #plot_array(V_max, "img" + str(test_img_num) + "_V_max.png", False)
         plot_array_over_img(V_max, "img" + str(test_img_num) + "_V_max_img", False, I_RGB)
 
     # Normierung
     V_norm = (V_max - np.min(V_max)) / (np.max(V_max) - np.min(V_max) + eps)
-    if save_plot:
-        plot_array(V_norm, "img" + str(test_img_num) + "_V_norm.png", False)
+    #if save_plot:
+        #plot_array(V_norm, "img" + str(test_img_num) + "_V_norm.png", False)
 
     return V_norm
 
 def plot_stripes(V_norm):   # stellt vessellnesmap als schwarz weiß bild dar
     plt.figure(figsize=(10,5))
-    #plt.imshow(V_norm, cmap='gray')
     plt.title("Vesselness Map (Streifen erkannt)")
     plt.axis('off')
     folder = os.path.dirname(os.path.abspath(__file__))
@@ -223,7 +224,7 @@ def mark_stripes():     # markiert auf dem Bild die erkannten peaks
     plt.imshow(I_RGB_line)
     plt.title("Irgb y_scan line")
     folder = os.path.dirname(os.path.abspath(__file__))
-    img_path = os.path.join(folder, "images\I_rgb_line.png")
+    img_path = os.path.join(folder, "plots\\1_I_rgb_line.png")
     plt.plot(plot_array(I_RGB, "img" + str(test_img_num) + "_Original.png", False))
     plt.savefig(img_path, dpi=300, bbox_inches='tight')
     plt.close()
@@ -335,13 +336,14 @@ def test_accuracy(colorcombination, test_img):  # testet wie gut die farben erka
             errors += 1
     return 100 - (errors/len(colorcombination) * 100)
 
+
+
 I_GRAY, I_BGR = read_image(test_img_num)
 I_RGB = cv2.cvtColor(I_BGR, cv2.COLOR_BGR2RGB)
 I_sigmas = img_blurring(I_GRAY, sigmas)
 
 lambdas = img_lambda(I_sigmas)
 V_norm = img_vesselness(lambdas, 0.5, 0.5 )
-
 
 if save_img:
     plot_stripes(V_norm)
@@ -350,12 +352,3 @@ peaks, props, y_scan, I_rgb = detect_stripes(V_norm)
 
 if save_img:
     mark_stripes()
-
-'''
-if one_line:
-    colorcombination = colorline_detection(I_rgb, y_scan)
-else:
-    colorcombination = [[]]*V_norm.shape[0]
-    for y in range(V_norm.shape[0]):
-        colorcombination[y] = colorline_detection(I_rgb, y)
-'''
