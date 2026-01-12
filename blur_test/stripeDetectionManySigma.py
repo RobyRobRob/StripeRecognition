@@ -9,9 +9,9 @@ import time
 
 test_img_num = 6
 sigmas = [1, 2, 3]
-save_plot = True
-save_img = True
-one_line = True
+save_plot = False
+save_img = False
+one_line = False
 #================================================================================================
 # Visual functions
 #================================================================================================
@@ -49,10 +49,9 @@ def plot_array(arr, name, multiple):
         plt.close()
         return Img_line
 
-def plot_array_over_img(arr, name, multiple, img):
+def plot_array_over_img(arr, name, multiple, img, scale = 1):
     folder = os.path.dirname(os.path.abspath(__file__))
     plot_path = os.path.join(folder, "plots/" + name)
-    
     plt.title(name)
     plt.xlabel("x-Pixel")
     plt.ylabel("Helligkeit (0–255)")
@@ -64,11 +63,11 @@ def plot_array_over_img(arr, name, multiple, img):
         if max_val < 1:
             max_val = 1
         plt.figure(figsize=(10,10))
-        I_RGB_stripe = np.stack([I_RGB_line] * int(max_val), axis=0)
+        I_RGB_stripe = np.stack([I_RGB_line] * int(max_val) * scale, axis=0)
         
         plt.imshow(I_RGB_stripe, cmap=None)
         for i in range(len(arr)):
-            plt.plot(arr[i][y_scan, :], label="Kurve " + str(i+1))
+            plt.plot(arr[i][y_scan, :]*scale, label="Kurve " + str(i+1))
         plt.legend(loc="center left")
         plt.savefig(plot_path, dpi=300, bbox_inches='tight')
         plt.close()
@@ -83,14 +82,14 @@ def plot_array_over_img(arr, name, multiple, img):
         if max_val < 1:
             max_val = 1
         plt.figure(figsize=(10,10))
-        I_RGB_stripe = np.stack([I_RGB_line] * int(max_val), axis=0)
+        I_RGB_stripe = np.stack([I_RGB_line] * int(max_val)* scale, axis=0)
     
         plt.imshow(I_RGB_stripe, cmap=None)
         if arr.ndim > 1:
             Img_line = arr[y_scan, :]
         else:
             Img_line = arr
-        plt.plot(Img_line)
+        plt.plot(Img_line*scale)
         plt.savefig(plot_path, dpi=300, bbox_inches='tight')
         plt.close()
         return Img_line
@@ -105,38 +104,34 @@ def img_vesselnessmap(V_norm):   # stellt vessellnesmap als schwarz weiß bild d
 
 def mark_stripes():     # markiert auf dem Bild die erkannten peaks
     plt.figure(figsize=(12, 6))
-    I_RGB = cv2.cvtColor(I_BGR, cv2.COLOR_BGR2RGB)
-    
     I_RGB_line = I_RGB
     for i in range(len(I_RGB)):
         I_RGB_line[i] = I_RGB[y_scan]
     
     # Im plot
-    plt.imshow(I_RGB_line)
-    plt.title("Irgb y_scan line")
-    folder = os.path.dirname(os.path.abspath(__file__))
-    img_path = os.path.join(folder, "plots\\1_I_rgb_line.png")
-    plt.plot(plot_array(I_RGB, "img" + str(test_img_num) + "_Original.png", False))
-    plt.savefig(img_path, dpi=300, bbox_inches='tight')
-    plt.close()
+    if save_plot:
+        plt.imshow(I_RGB_line)
+        plt.title("Irgb peaks in y_scan line")
+        folder = os.path.dirname(os.path.abspath(__file__))
+        img_path = os.path.join(folder, "plots\\peaks_in_graph.png")
+        plt.plot(np.max(I_RGB_line[y_scan], axis=1))
+        for x in range(len(peaks)):
+            plt.plot(peaks[x], np.max(I_RGB[y_scan, peaks[x], :]), 'rx', markersize=3, markeredgewidth=1)
+        plt.savefig(img_path, dpi=300, bbox_inches='tight')
+        plt.close()
     
     # Im Bild
-    plt.imshow(I_RGB)
-    plt.title("Scanlinie und erkannte Streifen")
-    # Scanlinie einzeichnen
-    plt.axhline(y_scan, color='lime', linestyle='--', linewidth=1)
-    # Peaks als rote Kreuze markieren
-    for x in peaks:
-        plt.plot(x, y_scan, 'rx', markersize=3, markeredgewidth=1)
-    plt.axis('off')
-    folder = os.path.dirname(os.path.abspath(__file__))
-    img_path = os.path.join(folder, "images\output_peaks.png")
-    plt.savefig(img_path, dpi=300, bbox_inches='tight')
+    if save_img:
+        plt.figure(figsize=(12, 6))
+        plt.imshow(I_RGB_line)
+        for i in peaks:
+            plt.plot(i, y_scan, 'rx', markersize=4, markeredgewidth=1)
+        folder = os.path.dirname(os.path.abspath(__file__))
+        img_path = os.path.join(folder, "images\stripes_peaks.png")
+        plt.savefig(img_path, dpi=300, bbox_inches='tight')
+        plt.close()
 
 def mark_window(x, y_scan): # markiert die sreifen in einem Bild
-    # peaks[x]
-    I_RGB = cv2.cvtColor(I_BGR, cv2.COLOR_BGR2RGB)
-
     plt.figure(figsize=(12, 6))
     plt.imshow(I_RGB)
 
@@ -202,7 +197,7 @@ def img_lambda(I_sigmas):       # Lambdas berechnen
         Ixxs.append(Ixx)
         Iyys.append(Iyy)
         Ixys.append(Ixy)
-    if save_plot:
+    if save_plot and one_line is False:
         plot_array_over_img(Ixxs, "2_Ableitungen", True, I_RGB)
     return lambdas
 
@@ -234,20 +229,48 @@ def img_vesselness(lambdas, alpha, beta): # erstellt vesselness map
 
     return V_norm, V_all, V_max
 
-def detect_stripes(V_norm): # scannt Veselness map nach streifen ab und gibt koordinaten zurück
+def detect_stripes(V_norm, I_RGB, y_scan): # scannt nach peaks und filtert mit der vesellnes map
     # 1 Scanlinie wählen (z. B. mittig)
-    y_scan = V_norm.shape[0] // 2
+    #y_scan = V_norm.shape[0] // 2
 
     # 2️ Werte entlang der Scanlinie holen
     line_vessel = V_norm[y_scan, :]
 
     # 3️ Peaks finden (Streifenmitten)
     # "distance" steuert den minimalen Abstand zwischen Peaks und height die höhe die ein pixel haben muss um ein peak zu sein
-    peaks, props = find_peaks(line_vessel, distance=10, height=0.2)
+    intervall_anfang = []
+    intervall_ende = []
+    stripe_count = 0
+    stripe_flag = False
+    I_RGB_max = np.max(I_RGB[y_scan], axis = 1)
+    peaks= []
+    
+    for i in range(len(line_vessel)):
+        if line_vessel[i] >= 0.99 and stripe_flag is False:
+            stripe_flag = True
+            intervall_anfang.append(i)
+        if line_vessel[i] <= 0.99 and stripe_flag is True:
+            stripe_flag = False
+            intervall_ende.append(i)
+            stripe_count += 1
 
+    if len(intervall_anfang) > len(intervall_ende):
+        intervall_anfang.pop()
+
+    peaks, props = find_peaks(I_RGB_max, prominence= 10, distance=10)
+    true_peaks = []
+    for peak in peaks:
+        true_peak = False
+        for start, end in zip(intervall_anfang, intervall_ende):
+            if peak > start and peak < end:
+                true_peak = True
+                break
+        true_peaks.append(peak)
+            
+    
     print(f"Gefundene Peaks: {len(peaks)}")
     I_rgb = cv2.cvtColor(I_BGR, cv2.COLOR_BGR2RGB)
-    return peaks, props, y_scan, I_rgb
+    return true_peaks, props, y_scan, I_rgb
 
 def color_detection(I_RGB, y_scan, x, peaks):  # erkennt die Farbwerte an der position anhand des windows
     color_min = [300, 300, 300]
@@ -293,7 +316,7 @@ def color_mapping(color, top_limit, low_limit):     # weißt den farbwerten eine
     else:
         return "?"
 
-def colorline_detection(I_RGB, y):      # erkennt alle farben in einer reihe
+def colorline_detection(I_RGB, y, peaks):      # erkennt alle farben in einer reihe
     colorcombination = [""] * len(peaks)
     for i in range(len(peaks)):
         # mark_window(x, y_scan)
@@ -327,18 +350,36 @@ I_RGB = cv2.cvtColor(I_BGR, cv2.COLOR_BGR2RGB)
 I_sigmas = img_blurring(I_GRAY, sigmas)
 lambdas = img_lambda(I_sigmas)
 V_norm, V_all, V_max = img_vesselness(lambdas, 0.5, 0.5 )
-peaks, props, y_scan, I_rgb = detect_stripes(V_norm)
 
-if save_img:
-    img_vesselnessmap(V_norm)
-    mark_stripes()
+if one_line:
+    y_scan = I_RGB.shape[0] // 2
+    peaks, props, y_scan, I_rgb = detect_stripes(V_norm, I_RGB, y_scan)
+    colorcombination = colorline_detection(I_RGB, y_scan, peaks)
+    print(colorcombination)
+    print(test_accuracy(colorcombination, test_img_num))
+else:
+    for y in range(I_RGB.shape[0]):
+        peaks, props, y_scan, I_rgb = detect_stripes(V_norm, I_RGB, y)
+        colorcombination = colorline_detection(I_RGB, y, peaks)
+
+
+#================================================================================================
+# Images and Plots
+#================================================================================================
+if save_img and one_line is False:
+    #img_vesselnessmap(V_norm)
+    #mark_stripes()
     count = 1
     for i in I_sigmas:
-        save_image(i, "gray", f"img{test_img_num}_blurred   Sigma: " + str(count), f"images/img{test_img_num}_blurred_{sigmas[count-1]}.png" )
+        #save_image(i, "gray", f"img{test_img_num}_blurred   Sigma: " + str(count), f"images/img{test_img_num}_blurred_{sigmas[count-1]}.png" )
         count += 1
 
-if save_plot:
-        plot_array_over_img(I_sigmas, "img" + str(test_img_num) + "_Sigmas", True, I_RGB)
-        # in img_labda ist ein plotaufruf für Ixx
-        plot_array_over_img(V_all, "img" + str(test_img_num) + "_V_all_img", True, I_RGB)
-        plot_array_over_img(V_max, "img" + str(test_img_num) + "_V_max_img", False, I_RGB)
+if save_plot and one_line is False:
+    #plot_array(I_RGB, "img" + str(test_img_num) + "_Original.png", False)
+    if save_img is False:
+        mark_stripes()
+    #plot_array_over_img(I_sigmas, "img" + str(test_img_num) + "_Sigmas", True, I_RGB)
+    # in img_labda ist ein plotaufruf für Ixx
+    #plot_array_over_img(V_all, "img" + str(test_img_num) + "_V_all_img", True, I_RGB)
+    plot_array_over_img(V_max, "img" + "_V_max_img", False, I_RGB, 20)
+    #plot_array(V_max, "img" + str(test_img_num) + "_V_max", False)
