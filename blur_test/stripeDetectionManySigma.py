@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 from scipy.signal import find_peaks
 from scipy.ndimage import gaussian_filter
 import os
+import re
 import time
 
 test_img_num = 6
@@ -267,8 +268,8 @@ def detect_stripes(V_norm, I_RGB, y_scan): # scannt nach peaks und filtert mit d
                 break
         true_peaks.append(peak)
             
-    
-    print(f"Gefundene Peaks: {len(peaks)}")
+    if one_line:
+        print(f"Gefundene Peaks: {len(peaks)}")
     I_rgb = cv2.cvtColor(I_BGR, cv2.COLOR_BGR2RGB)
     return true_peaks, props, y_scan, I_rgb
 
@@ -341,6 +342,36 @@ def test_accuracy(colorcombination, test_img):  # testet wie gut die farben erka
             errors += 1
     return 100 - (errors/len(colorcombination) * 100)
 
+def create_projector_values():
+    if test_img_num == 1:
+        with open("blur_test/peaks_projector.txt", "w") as f:
+            for y in range(len(all_peaks)):
+                for x in range(len(all_peaks[y])):
+                    f.write(f"{(all_peaks[y][x], y)}")
+                f.write(f"\n")
+        with open("blur_test/color_projector.txt", "w") as f:
+            for y in range(len(all_colorcombination)):
+                for x in range(len(all_colorcombination[y])):
+                    f.write(f"{all_colorcombination[y][x]}")
+                f.write(f"\n")
+
+def get_projector_values():
+    if test_img_num != 1:
+        points_camera = []
+        points_projector = []
+        x, y = 2, 0
+        
+        projector_points = []
+        with open("blur_test/peaks_projector.txt", "r", encoding="utf-8") as f:
+            for line in f:
+                # alle Tupel (x, y) aus der Zeile extrahieren
+                tuples = re.findall(r"\((\d+),\s*(\d+)\)", line)
+                # in echte int-Tupel umwandeln
+                row = [(int(x), int(y)) for x, y in tuples]
+                if row:  # leere Zeilen ignorieren
+                    projector_points.append(row)
+    return projector_points
+
 
 #================================================================================================
 # Main
@@ -356,11 +387,45 @@ if one_line:
     peaks, props, y_scan, I_rgb = detect_stripes(V_norm, I_RGB, y_scan)
     colorcombination = colorline_detection(I_RGB, y_scan, peaks)
     print(colorcombination)
-    print(test_accuracy(colorcombination, test_img_num))
+    if test_img_num <= 6:
+        print(test_accuracy(colorcombination, test_img_num))
 else:
+    all_peaks = []
+    all_colorcombination = []
     for y in range(I_RGB.shape[0]):
         peaks, props, y_scan, I_rgb = detect_stripes(V_norm, I_RGB, y)
         colorcombination = colorline_detection(I_RGB, y, peaks)
+        all_peaks.append(peaks)
+        all_colorcombination.append(colorcombination)
+    
+        projector_points = get_projector_values()
+        
+        going = True
+        while going:
+            window = ""
+            for w in range(-2, 3):
+                window += all_colorcombination[y][x + w]
+
+            with open("blur_test/color_projector.txt", "r", encoding="utf-8") as f:
+                for i, line in enumerate(f):
+                    if i == y:
+                        pos = line.find(window)
+                        if pos != -1:
+                            for w in range(-2, 3):
+                                points_camera.append((all_peaks[y][x + w], y))
+                                points_projector.append(projector_points[y][x+w])
+                                if x + 6 >= len(all_colorcombination[y]):
+                                    if y >=  1: #len(all_colorcombination):
+                                        going = False
+                                    else:
+                                        x = 2
+                                        y += 1
+                                else:
+                                    x += 3
+            print(points_camera)
+            print(points_projector)
+
+    create_projector_values()
 
 
 #================================================================================================
@@ -374,7 +439,7 @@ if save_img and one_line is False:
         #save_image(i, "gray", f"img{test_img_num}_blurred   Sigma: " + str(count), f"images/img{test_img_num}_blurred_{sigmas[count-1]}.png" )
         count += 1
 
-if save_plot and one_line is False:
+if save_plot and one_line is True:
     #plot_array(I_RGB, "img" + str(test_img_num) + "_Original.png", False)
     if save_img is False:
         mark_stripes()
