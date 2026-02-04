@@ -1,12 +1,12 @@
 import numpy as np
 
 # Kamera
-cam_in  = (700, 700, 320, 240)      # fx, fy, cx, cy
-cam_ex  = (-0.6, 0.1, 0.0, 0, 0, 0)  # tx, ty, tz, rx, ry, rz
+cam_in  = (1925.3, 1925.3, 960, 540)      # fx, fy, cx, cy
+cam_ex  = (-0.1, 0, 0, 90, 0, -183)  # tx, ty, tz, rx, ry, rz
 
 # Projektor
-proj_in  = (850, 850, 400, 300)     # fx, fy, cx, cy
-proj_ex  = (0.6, -0.1, 0.0, 0, 8, 0) # tx, ty, tz, rx, ry, rz
+proj_in  = (506,4, 126.3, 603.5, 150.5)     # fx, fy, cx, cy
+proj_ex  = (0.1, 0, 0, 90, 0, 180) # tx, ty, tz, rx, ry, rz
 
 # Bildpunkte Test
 cam_pxl = [(300, 270), (305, 270)]   # u, v
@@ -87,7 +87,8 @@ def calculate_point(cam, proj):
 
 def calculate_all_points(cam, proj):
     points = []
-    for c, p in cam, proj:
+    #print(cam)
+    for c, p in zip(cam, proj):
         points.append(calculate_point(c, p))
     return points
 
@@ -108,4 +109,4 @@ def save_ply_points(filename, cam_pxl, proj_pxl):
         for x, y, z in points:
             f.write(f"{x} {y} {z}\n")
 
-save_ply_points("test_points.ply", cam_pxl, proj_pxl)
+save_ply_points("blur_test/test_points.ply", cam_pxl, proj_pxl)

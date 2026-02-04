@@ -270,8 +270,7 @@ def detect_stripes(V_norm, I_RGB, y_scan): # scannt nach peaks und filtert mit d
             
     if one_line:
         print(f"Gefundene Peaks: {len(peaks)}")
-    I_rgb = cv2.cvtColor(I_BGR, cv2.COLOR_BGR2RGB)
-    return true_peaks, props, y_scan, I_rgb
+    return true_peaks, props, y_scan
 
 def color_detection(I_RGB, y_scan, x, peaks):  # erkennt die Farbwerte an der position anhand des windows
     color_min = [300, 300, 300]
@@ -345,88 +344,119 @@ def test_accuracy(colorcombination, test_img):  # testet wie gut die farben erka
 def create_projector_values():
     if test_img_num == 1:
         with open("blur_test/peaks_projector.txt", "w") as f:
-            for y in range(len(all_peaks)):
-                for x in range(len(all_peaks[y])):
-                    f.write(f"{(all_peaks[y][x], y)}")
+            for x in range(len(all_peaks[0])):
+                f.write(f"{all_peaks[0][x]}")
                 f.write(f"\n")
         with open("blur_test/color_projector.txt", "w") as f:
-            for y in range(len(all_colorcombination)):
-                for x in range(len(all_colorcombination[y])):
-                    f.write(f"{all_colorcombination[y][x]}")
+            for x in range(len(all_colorcombination[0])):
+                f.write(f"{all_colorcombination[0][x]}")
                 f.write(f"\n")
 
 def get_projector_values():
     if test_img_num != 1:
-        points_camera = []
-        points_projector = []
-        x, y = 2, 0
-        
         projector_points = []
+        projector_color = []
         with open("blur_test/peaks_projector.txt", "r", encoding="utf-8") as f:
             for line in f:
-                # alle Tupel (x, y) aus der Zeile extrahieren
-                tuples = re.findall(r"\((\d+),\s*(\d+)\)", line)
-                # in echte int-Tupel umwandeln
-                row = [(int(x), int(y)) for x, y in tuples]
-                if row:  # leere Zeilen ignorieren
-                    projector_points.append(row)
-    return projector_points
+                projector_points.append(int(line))
+        with open("blur_test/color_projector.txt", "r", encoding="utf-8") as f:
+            for line in f:
+                projector_color.append(line.rstrip('\n'))
+        return projector_points, projector_color
+    else:
+        return None, None
 
+def find_window(y, projector_points, projector_color, all_colorcombination, all_peaks, window_size):
+    points_camera = []
+    points_projector = []
+    color_projector = []
+    color_camera = []
+    x = 0
+    going = True
+    
+    while going:
+        window = []
+        for w in range(window_size):
+            window.append(all_colorcombination[y][x + w])
+
+        counter = 0
+        found = False
+        for i in range(len(projector_color)):
+            if window[counter] == projector_color[i]:
+                counter += 1
+            else:
+                counter = 0
+            if counter == window_size:
+                for j in range(window_size):
+                    found = True
+                    points_camera.append((all_peaks[y][x + j], y))
+                    points_projector.append((projector_points[(i - (window_size - 1)) + j], y))
+                    color_projector.append((projector_color[(i - (window_size-1)) + j], y))
+                break
+        x += 1
+        if x + window_size * 2 >= len(all_colorcombination[y]):
+            going = False
+    
+    return points_camera, points_projector 
+
+def calc_one_line(I_RGB, I_BGR, V_norm):
+    if one_line:
+        y_scan = I_RGB.shape[0] // 2
+        peaks, props, y_scan = detect_stripes(V_norm, I_RGB, y_scan)
+        colorcombination = colorline_detection(I_RGB, y_scan, peaks)
+        print(colorcombination)
+        if test_img_num <= 6:
+            print(test_accuracy(colorcombination, test_img_num))
+
+def calc_multiple_lines(I_RGB, I_BGR, V_norm):   #Funktion zu langsam
+    if one_line is False:
+        all_peaks = []
+        all_colorcombination = []
+        all_points_camera = []
+        all_points_projector = []
+        for y in range(I_RGB.shape[0]):
+            print(y)
+            peaks, props, y_scan = detect_stripes(V_norm, I_RGB, y)   # viel zu langsam
+            all_peaks.append(peaks)
+            
+            if len(peaks) >= 5:
+                colorcombination = colorline_detection(I_RGB, y, peaks)
+                all_colorcombination.append(colorcombination)
+                
+                projector_points, projector_color = get_projector_values()
+                c, p = find_window(y, projector_points, projector_color, all_colorcombination, all_peaks, 5)    # zu langsam
+                if len(c) > 0:
+                    for i in c:
+                        if i not in all_points_camera:
+                            all_points_camera.append(i)
+                    for i in p:
+                        if i not in all_points_projector:
+                            all_points_projector.append(i)
+                    
+            else:
+                all_colorcombination.append([])
+        return all_points_camera, all_points_projector
+    return None, None
+
+def get_vessels():
+    I_GRAY, I_BGR = read_image(test_img_num)
+    I_RGB = cv2.cvtColor(I_BGR, cv2.COLOR_BGR2RGB)
+    I_sigmas = img_blurring(I_GRAY, sigmas)
+    lambdas = img_lambda(I_sigmas)
+    V_norm, V_all, V_max = img_vesselness(lambdas, 0.5, 0.5 )
+    return I_RGB, I_BGR, V_norm
 
 #================================================================================================
 # Main
 #================================================================================================
-I_GRAY, I_BGR = read_image(test_img_num)
-I_RGB = cv2.cvtColor(I_BGR, cv2.COLOR_BGR2RGB)
-I_sigmas = img_blurring(I_GRAY, sigmas)
-lambdas = img_lambda(I_sigmas)
-V_norm, V_all, V_max = img_vesselness(lambdas, 0.5, 0.5 )
-
-if one_line:
-    y_scan = I_RGB.shape[0] // 2
-    peaks, props, y_scan, I_rgb = detect_stripes(V_norm, I_RGB, y_scan)
-    colorcombination = colorline_detection(I_RGB, y_scan, peaks)
-    print(colorcombination)
-    if test_img_num <= 6:
-        print(test_accuracy(colorcombination, test_img_num))
-else:
-    all_peaks = []
-    all_colorcombination = []
-    for y in range(I_RGB.shape[0]):
-        peaks, props, y_scan, I_rgb = detect_stripes(V_norm, I_RGB, y)
-        colorcombination = colorline_detection(I_RGB, y, peaks)
-        all_peaks.append(peaks)
-        all_colorcombination.append(colorcombination)
-    
-        projector_points = get_projector_values()
-        
-        going = True
-        while going:
-            window = ""
-            for w in range(-2, 3):
-                window += all_colorcombination[y][x + w]
-
-            with open("blur_test/color_projector.txt", "r", encoding="utf-8") as f:
-                for i, line in enumerate(f):
-                    if i == y:
-                        pos = line.find(window)
-                        if pos != -1:
-                            for w in range(-2, 3):
-                                points_camera.append((all_peaks[y][x + w], y))
-                                points_projector.append(projector_points[y][x+w])
-                                if x + 6 >= len(all_colorcombination[y]):
-                                    if y >=  1: #len(all_colorcombination):
-                                        going = False
-                                    else:
-                                        x = 2
-                                        y += 1
-                                else:
-                                    x += 3
-            print(points_camera)
-            print(points_projector)
-
+def main():
     create_projector_values()
+    I_RGB, I_BGR, V_norm = get_vessels()
+    calc_one_line(I_RGB, I_BGR, V_norm)
+    points_camera, points_projector = calc_multiple_lines(I_RGB, I_BGR, V_norm)
+    return points_camera, points_projector
 
+main()
 
 #================================================================================================
 # Images and Plots
