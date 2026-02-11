@@ -8,7 +8,7 @@ import os
 import re
 import time
 
-test_img_num = 5
+test_img_num = 6
 sigmas = [1, 2, 3]
 save_plot = False
 save_img = False
@@ -230,12 +230,12 @@ def img_vesselness(lambdas, alpha, beta): # erstellt vesselness map
 
     return V_norm, V_all, V_max
 
-def detect_stripes(V_norm, I_RGB_max, y): # scannt nach peaks und filtert mit der vesellnes map
+def detect_stripes(V_norm, I_RGB_max, y_scan): # scannt nach peaks und filtert mit der vesellnes map
     # 1 Scanlinie wählen (z. B. mittig)
     #y_scan = V_norm.shape[0] // 2
 
     # 2️ Werte entlang der Scanlinie holen
-    line_vessel = V_norm[y, :]
+    line_vessel = V_norm[y_scan, :]
 
     # 3️ Peaks finden (Streifenmitten)
     # "distance" steuert den minimalen Abstand zwischen Peaks und height die höhe die ein pixel haben muss um ein peak zu sein
@@ -245,37 +245,32 @@ def detect_stripes(V_norm, I_RGB_max, y): # scannt nach peaks und filtert mit de
     stripe_flag = False
     peaks= []
     
-    mask = line_vessel >= 0.99
+    for i in range(len(line_vessel)):
+        if line_vessel[i] >= 0.99 and stripe_flag is False:
+            stripe_flag = True
+            intervall_anfang.append(i)
+        if line_vessel[i] <= 0.99 and stripe_flag is True:
+            stripe_flag = False
+            intervall_ende.append(i)
+            stripe_count += 1
 
-    # 0/1 Übergänge berechnen
-    mask_int = mask.astype(np.int8)
-    diff = np.diff(mask_int)
+    if len(intervall_anfang) > len(intervall_ende):
+        intervall_anfang.pop()
 
-    # Start: 0 → 1
-    intervall_anfang = np.where(diff == 1)[0] + 1
-
-    # Ende: 1 → 0
-    intervall_ende = np.where(diff == -1)[0] + 1
-
-    # Falls erstes Element schon True → Intervall startet bei 0
-    if mask[0]:
-        intervall_anfang = np.insert(intervall_anfang, 0, 0)
-
-    # Falls letztes Element True → offenes Intervall entfernen
-    if mask[-1]:
-        if len(intervall_anfang) > len(intervall_ende):
-            intervall_anfang = intervall_anfang[:-1]
-
-    peaks, props = find_peaks(I_RGB_max[y], prominence= 10, distance=10)
+    print(intervall_anfang, intervall_ende)
+    peaks, props = find_peaks(I_RGB_max, prominence= 10, distance=10)  #!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     true_peaks = []
-    
-    inside = ((peaks[:, None] >= intervall_anfang[None, :]) &(peaks[:, None] <= intervall_ende[None, :]))
-    
-    true_peaks = peaks[np.any(inside, axis=1)]
+    for peak in peaks:
+        true_peak = False
+        for start, end in zip(intervall_anfang, intervall_ende):
+            if peak > start and peak < end:
+                true_peak = True
+                break
+        true_peaks.append(peak)
             
     if one_line:
         print(f"Gefundene Peaks: {len(peaks)}")
-    return true_peaks
+    return true_peaks, props, y_scan
 
 def color_detection(I_RGB, y_scan, x, peaks):  # erkennt die Farbwerte an der position anhand des windows
     color_min = [300, 300, 300]
@@ -301,26 +296,25 @@ def color_detection(I_RGB, y_scan, x, peaks):  # erkennt die Farbwerte an der po
         ambient[i] = color_min[i]
 
     color = [0, 0, 0]
-    eps = 1e-6
     for j in range(3):
-        color[j] = (I_RGB[y_scan, peaks[x]][j] - ambient[j]) / (h[j] + eps)
+        color[j] = (I_RGB[y_scan, peaks[x]][j] - ambient[j]) / h[j]
     return ambient, I_RGB, y_scan, x, color, h
 
 def color_mapping(color, top_limit, low_limit):     # weißt den farbwerten einer der 6 farben zu
     if((color[0] > top_limit) & (color[1] < low_limit) & (color[2] < low_limit)):
-        return "R" #1 #R
+        return "R"
     elif((color[0] < low_limit) & (color[1] > top_limit) & (color[2] < low_limit)):
-        return "G"#2 #G
+        return "G"
     elif((color[0] < low_limit) & (color[1] < low_limit) & (color[2] > top_limit)):
-        return "B"#3 #B
+        return "B"
     elif((color[0] > top_limit) & (color[1] > top_limit) & (color[2] < low_limit)):
-        return "Y"#4 #Y
+        return "Y"
     elif((color[0] > top_limit) & (color[1] < low_limit) & (color[2] > top_limit)):
-        return "M"#5 #M
+        return "M"
     elif((color[0] < low_limit) & (color[1] > top_limit) & (color[2] > top_limit)):
-        return "C"#6 #C
+        return "C"
     else:
-        return "?"#0 #?
+        return "?"
 
 def colorline_detection(I_RGB, y, peaks):      # erkennt alle farben in einer reihe
     colorcombination = [""] * len(peaks)
@@ -347,15 +341,15 @@ def test_accuracy(colorcombination, test_img):  # testet wie gut die farben erka
             errors += 1
     return 100 - (errors/len(colorcombination) * 100)
 
-def create_projector_values(all_peaks, all_colorcombination):
+def create_projector_values():
     if test_img_num == 1:
         with open("blur_test/peaks_projector.txt", "w") as f:
-            for x in range(len(all_peaks)):
-                f.write(f"{all_peaks[x]}")
+            for x in range(len(all_peaks[0])):
+                f.write(f"{all_peaks[0][x]}")
                 f.write(f"\n")
         with open("blur_test/color_projector.txt", "w") as f:
-            for x in range(len(all_colorcombination)):
-                f.write(f"{all_colorcombination[x]}")
+            for x in range(len(all_colorcombination[0])):
+                f.write(f"{all_colorcombination[0][x]}")
                 f.write(f"\n")
 
 def get_projector_values():
@@ -405,8 +399,6 @@ def find_window(y, projector_points, projector_color, all_colorcombination, all_
     return points_camera, points_projector
 
 def find_window_fast(y, projector_points, projector_color, all_colorcombination, all_peaks, window_size):
-    if len(all_colorcombination[y]) < window_size:
-        return [], []
     points_camera = []
     points_projector = []
     color_projector = []
@@ -415,15 +407,12 @@ def find_window_fast(y, projector_points, projector_color, all_colorcombination,
     w = 0
     # p = projector_index, c = camra_index, w = window_index
     while True:
-        #print(all_colorcombination[y])
-        #print(projector_color)
         found = False
-        #if y == 195:
-            #print(c)
-            #print(window_size)
-            #print(len(all_colorcombination[y]))
-        #print(c + window_size, len(all_colorcombination[y]))
-        if c + window_size <= len(all_colorcombination[y]):
+        if y == 195:
+            print(c)
+            print(window_size)
+            print(len(all_colorcombination[y]))
+        if c + window_size < len(all_colorcombination[y]):
             shift = False
             for p in range(last_window_position, len(projector_color)):
                 if all_colorcombination[y][c + w] == projector_color[p]:
@@ -443,10 +432,10 @@ def find_window_fast(y, projector_points, projector_color, all_colorcombination,
                     while shift:
                         w += 1
                         p_shift += 1
-                        #if(y == 195):
+                        if(y == 195):
                             # The above code is a simple Python script that prints the string "Test"
                             # to the console when executed.
-                            #print("Test")
+                            print("Test")
                         if c + w < len(all_colorcombination[y]):
                             if all_colorcombination[y][c + w] == projector_color[p + p_shift]:
                                 points_camera.append((all_peaks[y][c + w], y))
@@ -522,13 +511,11 @@ def find_window_correct(y, projector_points, projector_color, all_colorcombinati
 def calc_one_line(I_RGB, I_BGR, V_norm):
     if one_line:
         y_scan = I_RGB.shape[0] // 2
-        I_RGB_max = np.max(I_RGB, axis=2)
-        peaks = detect_stripes(V_norm, I_RGB_max, y_scan)
+        peaks, props, y_scan = detect_stripes(V_norm, I_RGB, y_scan)
         colorcombination = colorline_detection(I_RGB, y_scan, peaks)
         print(colorcombination)
-        create_projector_values(peaks, colorcombination)
-        #if test_img_num <= 6:
-            #print(test_accuracy(colorcombination, test_img_num))
+        if test_img_num <= 6:
+            print(test_accuracy(colorcombination, test_img_num))
 
 def calc_multiple_lines(I_RGB, I_BGR, V_norm):   #Funktion zu langsam
     if one_line is False:
@@ -536,20 +523,19 @@ def calc_multiple_lines(I_RGB, I_BGR, V_norm):   #Funktion zu langsam
         all_colorcombination = []
         all_points_camera = []
         all_points_projector = []
-        I_RGB_max = np.max(I_RGB, axis=2)   # shape: (H, W)
-        #print(I_RGB_max)
-        projector_points, projector_color = get_projector_values()
-        for y in range(0, I_RGB.shape[0]):
-            peaks = detect_stripes(V_norm, I_RGB_max, y)   # viel zu langsam
+        for y in range(I_RGB.shape[0]):
+            I_RGB_max = np.max(I_RGB[y], axis = 1)
+            peaks, props, y_scan = detect_stripes(V_norm, I_RGB_max, y)   # viel zu langsam
             all_peaks.append(peaks)
             #print("Found peaks in line: " + str(y))
-            if len(peaks) >= 5 and len(projector_color) >= 5:
+            
+            if len(peaks) >= 5:
                 colorcombination = colorline_detection(I_RGB, y, peaks)
                 all_colorcombination.append(colorcombination)
+                
+                projector_points, projector_color = get_projector_values()
                 #start = time.perf_counter()
                 c, p = find_window_fast(y, projector_points, projector_color, all_colorcombination, all_peaks, 5)
-                #print(c)
-                #print(p)
                 #print("Found pair in line: " + str(y))
                 #end = time.perf_counter()
                 #one = end - start
@@ -569,6 +555,7 @@ def calc_multiple_lines(I_RGB, I_BGR, V_norm):   #Funktion zu langsam
                     
             else:
                 all_colorcombination.append([])
+        print(all_peaks)
         return all_points_camera, all_points_projector
     return None, None
 
@@ -584,17 +571,17 @@ def get_vessels():
 # Main
 #================================================================================================
 def main():
+    create_projector_values()
     I_RGB, I_BGR, V_norm = get_vessels()
-    calc_one_line(I_RGB, I_BGR, V_norm)
+    #calc_one_line(I_RGB, I_BGR, V_norm)
     points_camera, points_projector = calc_multiple_lines(I_RGB, I_BGR, V_norm)
-    print ("Punkte gefunden: " + str(len(points_projector))) #500 ys pro Punkt
+    print(points_camera)
     return points_camera, points_projector
 
 if __name__ == "__main__":
-    start = time.perf_counter()
     main()
-    end = time.perf_counter()
-    print("Time for scan: " + str(end - start)) #500 ys pro Punkt
+    print("Done")
+
 #================================================================================================
 # Images and Plots
 #================================================================================================
