@@ -344,10 +344,10 @@ def get_projector_values(window_size):
     if test_img_num != 1:
         projector_points = []
         projector_color = []
-        with open("blur_test/peaks_projector.txt", "r", encoding="utf-8") as f:
+        with open("peaks_projector.txt", "r", encoding="utf-8") as f:
             for line in f:
                 projector_points.append(int(line))
-        with open("blur_test/color_projector.txt", "r", encoding="utf-8") as f:
+        with open("color_projector.txt", "r", encoding="utf-8") as f:
             for line in f:
                 projector_color.append(line.rstrip('\n'))
         
@@ -520,7 +520,7 @@ def calc_multiple_lines(I_RGB, I_BGR, V_norm):   #Funktion zu langsam
             end_stripes = time.perf_counter()
             time_stripes += (end_stripes - start_stripes)
             start_true_stripes = time.perf_counter()
-            #peaks = find_true_stripes(peaks,intervall_anfang, intervall_ende)                        #!!!!!!!
+            peaks = find_true_stripes(peaks,intervall_anfang, intervall_ende)                        #!!!!!!!
             end_true_stripes = time.perf_counter()
             time_true_stripes += (end_true_stripes - start_true_stripes)
             start_window = time.perf_counter()
