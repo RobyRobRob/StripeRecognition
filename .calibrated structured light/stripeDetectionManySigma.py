@@ -9,7 +9,7 @@ import os
 import re
 import time
 
-test_img_num = 5
+test_img_num = 10
 sigmas = [1, 2, 3]
 save_plot = False
 save_img = False

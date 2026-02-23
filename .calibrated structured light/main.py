@@ -47,7 +47,6 @@ cam_pxl, proj_pxl = sd.main()
 pts_cam = np.array(cam_pxl, dtype=np.float64).T
 pts_proj = np.array(proj_pxl, dtype=np.float64).T
 
-
 pts_cam = cv2.undistortPoints(
     np.array(cam_pxl, dtype=np.float64).reshape(-1,1,2),
     Kc, dist_c, P=Kc
