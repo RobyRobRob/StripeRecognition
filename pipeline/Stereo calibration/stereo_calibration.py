@@ -1,0 +1,167 @@
+import cv2
+import numpy as np
+import glob
+import os
+
+# ================================
+# Parameter
+# ================================
+pattern_size = (9, 6)
+square_size = 10.0
+pose_root = ".\Greycode images\Pose*"
+pattern_path = ".\Greycode pattern/*"
+projector_resolution = (1024, 768)
+
+# ================================
+# 3D Schachbrett Punkte
+# ================================
+objp = np.zeros((pattern_size[0]*pattern_size[1], 3), np.float32)
+objp[:, :2] = np.mgrid[0:pattern_size[0],
+                       0:pattern_size[1]].T.reshape(-1, 2)
+objp *= square_size
+
+# =====================================================
+# Projektor Pattern einmal laden
+# =====================================================
+pattern_images = sorted(glob.glob(pattern_path))
+pattern_stack = []
+
+for path in pattern_images:
+    img = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
+    pattern_stack.append(img)
+
+pattern_stack = np.array(pattern_stack)
+pattern_stack = (pattern_stack > 127).astype(np.uint8)
+
+num_patterns, H, W = pattern_stack.shape
+flat_patterns = pattern_stack.reshape(num_patterns, -1).T
+
+projector_dict = {}
+for idx, bits in enumerate(flat_patterns):
+    key = tuple(bits)
+    u = idx % W
+    v = idx // W
+    projector_dict.setdefault(key, []).append((u, v))
+
+# =====================================================
+# Daten sammeln
+# =====================================================
+objectPoints = []
+camera_imagePoints = []
+projector_imagePoints = []
+
+pose_folders = sorted(glob.glob(pose_root))
+
+for pose_path in pose_folders:
+
+    images = sorted(glob.glob(os.path.join(pose_path, "*")))
+    if len(images) < 2:
+        continue
+
+    # --------------------------------
+    # 1️⃣ Weißbild für Kamera
+    # --------------------------------
+    white_img = cv2.imread(images[0])
+    gray = cv2.cvtColor(white_img, cv2.COLOR_BGR2GRAY)
+
+    ret, corners = cv2.findChessboardCorners(gray, pattern_size)
+    if not ret:
+        continue
+
+    criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001)
+    corners = cv2.cornerSubPix(gray, corners, (11,11), (-1,-1), criteria)
+
+    camera_pixels = corners.reshape(-1,2).astype(np.float32)
+
+    coords = np.round(camera_pixels).astype(int)
+    xs = coords[:,0]
+    ys = coords[:,1]
+
+    # --------------------------------
+    # 2️⃣ Graycode Dekodierung
+    # --------------------------------
+    bit_sequences = []
+
+    for img_path in images:
+        img = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)
+        bits = (img[ys, xs] > 127).astype(np.uint8)
+        bit_sequences.append(bits)
+
+    bit_sequences = np.stack(bit_sequences, axis=1)
+
+    projector_points = []
+    valid_indices = []
+
+    for i, seq in enumerate(bit_sequences):
+        key = tuple(seq)
+        if key in projector_dict:
+            projector_points.append(projector_dict[key][0])
+            valid_indices.append(i)
+
+    if len(projector_points) < 10:
+        continue
+
+    projector_points = np.array(projector_points, dtype=np.float32)
+    camera_pixels_valid = camera_pixels[valid_indices]
+    objp_valid = objp[valid_indices]
+
+    objectPoints.append(objp_valid)
+    camera_imagePoints.append(camera_pixels_valid)
+    projector_imagePoints.append(projector_points)
+
+# =====================================================
+# 1️⃣ Kamera Kalibrierung
+# =====================================================
+image_size = (white_img.shape[1], white_img.shape[0])
+
+ret_c, Kc, dist_c, rvecs_c, tvecs_c = cv2.calibrateCamera(
+    objectPoints,
+    camera_imagePoints,
+    image_size,
+    None,
+    None
+)
+
+print("Kamera kalibrierung fertig")
+
+# =====================================================
+# 2️⃣ Projektor Kalibrierung
+# =====================================================
+ret_p, Kp, dist_p, rvecs_p, tvecs_p = cv2.calibrateCamera(
+    objectPoints,
+    projector_imagePoints,
+    projector_resolution,
+    None,
+    None
+)
+
+print("Projektor kalibrierung fertig")
+
+# =====================================================
+# 3️⃣ Stereo Kalibrierung
+# =====================================================
+ret_s, Kc, dist_c, Kp, dist_p, R, T, E, F = cv2.stereoCalibrate(
+    objectPoints,
+    camera_imagePoints,
+    projector_imagePoints,
+    Kc,
+    dist_c,
+    Kp,
+    dist_p,
+    projector_resolution,
+    flags=cv2.CALIB_FIX_INTRINSIC
+)
+
+print("Stereo kalibrierung fertig")
+
+np.savez("calibration_data.npz",
+         Kc=Kc,
+         dist_c=dist_c,
+         Kp=Kp,
+         dist_p=dist_p,
+         R=R,
+         T=T,
+         E=E,
+         F=F)
+
+print("Kalibrierungsdaten gespeichert (.npz).")
